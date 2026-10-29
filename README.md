@@ -25,19 +25,56 @@ cp pi/cfgredact.ts ~/.pi/agent/extensions/
 Run `/reload` in Pi. The extension redacts text and structured tool results. It passes non-text
 content through unchanged. It hides text when the CLI fails or times out.
 
-### Claude Code and Codex
+### Claude Code
 
-This repository does not currently include Claude Code or Codex integrations. Installing the CLI
-alone does not automatically filter their tool results. You can pipe individual commands through
-`cfgredact-cli`, but direct reads and other tools bypass that filter. Do not assume this provides
-complete protection.
+`claude/redact-output.js` is a Claude Code hook. A `PostToolUse` hook rewrites the string values of
+each tool result through the CLI. A `PreToolUse` hook denies `Write`, `Edit` and `MultiEdit` calls
+that add `[redacted]` markers. It needs Node.js and the CLI at `~/.claude/hooks/cfgredact-cli`
+(or the path in `CFGREDACT_BIN`).
+
+```sh
+mkdir -p ~/.claude/hooks
+GOBIN="$HOME/.claude/hooks" go install github.com/ivaltryek/cfgredact-cli@latest
+cp claude/redact-output.js ~/.claude/hooks/
+node ~/.claude/hooks/redact-output.js selftest
+```
+
+Merge this into the `hooks` object in `~/.claude/settings.json`. Use the absolute path to `node`
+(`command -v node`) and to your home directory. If you already have `PostToolUse` or `PreToolUse`
+entries, add these to the existing arrays.
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [{ "type": "command", "command": "node /home/you/.claude/hooks/redact-output.js post", "timeout": 15 }]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [{ "type": "command", "command": "node /home/you/.claude/hooks/redact-output.js guard", "timeout": 5 }]
+      }
+    ]
+  }
+}
+```
+
+Limits: if the hook crashes or times out, Claude Code keeps the original output. The hook hides
+text only when the CLI itself fails. It skips images, documents, and short strings. The transcript
+and the terminal can still hold raw output.
+
+### Codex
+
+Codex is not supported. Its `PostToolUse` hook cannot replace tool output. Installing the CLI does
+not filter Codex tool results. You can pipe single commands through `cfgredact-cli`, but direct
+reads and other tools bypass it.
 
 ```sh
 printf 'password: example\n' | cfgredact-cli
 ```
-
-For this example, install the CLI on your `PATH` with
-`go install github.com/ivaltryek/cfgredact-cli@latest`.
 
 ## Test
 
